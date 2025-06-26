@@ -3,7 +3,7 @@ package cc.coopersoft.keycloak.phone.providers.rest;
 import cc.coopersoft.keycloak.phone.providers.constants.TokenCodeType;
 import cc.coopersoft.keycloak.phone.providers.spi.PhoneVerificationCodeProvider;
 
-import org.jboss.resteasy.annotations.cache.NoCache;
+
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.UserModel;
 import org.keycloak.services.managers.AppAuthManager;
@@ -28,7 +28,6 @@ public class VerificationCodeResource extends TokenCodeResource {
     }
 
     @POST
-    @NoCache
     @Path("")
     @Produces(APPLICATION_JSON)
     public Response checkVerificationCode(@QueryParam("phoneNumber") String phoneNumber,

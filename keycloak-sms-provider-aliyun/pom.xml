@@ -37,6 +37,19 @@
         </exclusion>
       </exclusions>
     </dependency>
+
+    <!-- Add correct dypnsapi dependency for SMS verification codes -->
+    <dependency>
+      <groupId>com.aliyun</groupId>
+      <artifactId>alibabacloud-dypnsapi20170525</artifactId>
+      <version>1.0.8</version>
+      <exclusions>
+        <exclusion>
+          <groupId>org.bouncycastle</groupId>
+          <artifactId>bcprov-jdk15on</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
   </dependencies>
 
   <build>

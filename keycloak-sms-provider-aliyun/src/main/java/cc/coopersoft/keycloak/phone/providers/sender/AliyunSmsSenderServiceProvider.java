@@ -6,9 +6,9 @@ import cc.coopersoft.keycloak.phone.providers.spi.MessageSenderService;
 import cc.coopersoft.common.OptionalUtils;
 import com.aliyun.auth.credentials.Credential;
 import com.aliyun.auth.credentials.provider.StaticCredentialProvider;
-import com.aliyun.sdk.service.dysmsapi20170525.AsyncClient;
-import com.aliyun.sdk.service.dysmsapi20170525.models.SendSmsRequest;
-import com.aliyun.sdk.service.dysmsapi20170525.models.SendSmsResponse;
+import com.aliyun.sdk.service.dypnsapi20170525.AsyncClient;
+import com.aliyun.sdk.service.dypnsapi20170525.models.SendSmsVerifyCodeRequest;
+import com.aliyun.sdk.service.dypnsapi20170525.models.SendSmsVerifyCodeResponse;
 import darabonba.core.client.ClientOverrideConfiguration;
 import org.jboss.logging.Logger;
 import org.keycloak.Config;
@@ -16,6 +16,7 @@ import org.keycloak.models.RealmModel;
 
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 public class AliyunSmsSenderServiceProvider implements MessageSenderService {
 
@@ -29,81 +30,121 @@ public class AliyunSmsSenderServiceProvider implements MessageSenderService {
     this.config = config;
     this.realm = realm;
 
-    // HttpClient Configuration
-        /*HttpClient httpClient = new ApacheAsyncHttpClientBuilder()
-                .connectionTimeout(Duration.ofSeconds(10)) // Set the connection timeout time, the default is 10 seconds
-                .responseTimeout(Duration.ofSeconds(10)) // Set the response timeout time, the default is 20 seconds
-                .maxConnections(128) // Set the connection pool size
-                .maxIdleTimeOut(Duration.ofSeconds(50)) // Set the connection pool timeout, the default is 30 seconds
-                // Configure the proxy
-                .proxy(new ProxyOptions(ProxyOptions.Type.HTTP, new InetSocketAddress("<your-proxy-hostname>", 9001))
-                        .setCredentials("<your-proxy-username>", "<your-proxy-password>"))
-                // If it is an https connection, you need to configure the certificate, or ignore the certificate(.ignoreSSL(true))
-                .x509TrustManagers(new X509TrustManager[]{})
-                .keyManagers(new KeyManager[]{})
-                .ignoreSSL(false)
-                .build();*/
-
-
+    logger.info("Initializing Aliyun SMS provider for realm: " + realm.getName());
+    
     // Configure Credentials authentication information, including ak, secret, token
+    String accessKeyId = config.get("key");
+    String accessKeySecret = config.get("secret");
+    
+    if (accessKeyId == null || accessKeySecret == null) {
+      logger.error("Aliyun SMS credentials not configured properly. AccessKeyId: " + accessKeyId + ", AccessKeySecret: " + (accessKeySecret != null ? "***" : "null"));
+      throw new IllegalArgumentException("Aliyun SMS credentials not configured");
+    }
+    
+    logger.info("Using Aliyun AccessKeyId: " + accessKeyId.substring(0, Math.min(6, accessKeyId.length())) + "***");
+    
     StaticCredentialProvider provider = StaticCredentialProvider.create(Credential.builder()
-        .accessKeyId(config.get("key"))
-        .accessKeySecret(config.get("secret"))
-        .securityToken(config.get("token")) // use STS token
+        .accessKeyId(accessKeyId)
+        .accessKeySecret(accessKeySecret)
         .build());
 
-    // Configure the Client
+    // Configure the Client - using dypnsapi endpoint for SMS verification codes
     client = AsyncClient.builder()
-        //.httpClient(httpClient) // Use the configured HttpClient, otherwise use the default HttpClient (Apache HttpClient)
+        .region("cn-shanghai") // Region ID
         .credentialsProvider(provider)
-        //.serviceConfiguration(Configuration.create()) // Service-level configuration
-        // Client-level configuration rewrite, can set Endpoint, Http request parameters, etc.
         .overrideConfiguration(
-            ClientOverrideConfiguration.create()
-                // Endpoint 请参考 https://api.aliyun.com/product/Dysmsapi
-                .setEndpointOverride("dysmsapi.ap-southeast-1.aliyuncs.com")
-            //.setConnectTimeout(Duration.ofSeconds(30))
+                ClientOverrideConfiguration.create()
+                        .setEndpointOverride("dypnsapi.aliyuncs.com")
         )
         .build();
-
+        
+    logger.info("Aliyun SMS client initialized successfully with dypnsapi");
   }
 
   @Override
   public void sendSmsMessage(TokenCodeType type, String phoneNumber, String code, int expires, String kind) throws MessageSendException {
+    logger.info("Sending SMS verification code via Aliyun dypnsapi to: " + phoneNumber + ", code: " + code + ", expires: " + expires);
+    
+    try {
+      String kindName = OptionalUtils.ofBlank(kind).orElse(type.name().toLowerCase());
+      
+      // 获取模板ID配置，优先使用realm特定配置
+      String templateId = Optional.ofNullable(config.get(realm.getName().toLowerCase() + "-" + kindName + "-template"))
+          .orElse(config.get(kindName + "-template"));
+      
+      // 如果没有配置模板ID，抛出异常  
+      if (templateId == null) {
+        String error = "SMS template not configured for type: " + kindName + ". Please set --spi-message-sender-service-aliyun-" + kindName + "-template=YOUR_TEMPLATE_ID";
+        logger.error(error);
+        throw new MessageSendException(-1, "TEMPLATE_NOT_CONFIGURED", error);
+      }
+      
+      // 获取签名配置，默认使用realm显示名称
+      String signName = config.get("sign-name");
+      if (signName == null) {
+        signName = realm.getDisplayName();
+        if (signName == null || signName.trim().isEmpty()) {
+          signName = realm.getName();
+        }
+      }
+      
+      logger.info("Using template: " + templateId + ", sign: " + signName);
+      
+      // Parameter settings for API request - using SendSmsVerifyCodeRequest
+      SendSmsVerifyCodeRequest sendSmsVerifyCodeRequest = SendSmsVerifyCodeRequest.builder()
+          .phoneNumber(phoneNumber)  // Note: single phoneNumber, not phoneNumbers
+          .signName(signName)
+          .templateCode(templateId)
+          .templateParam(String.format("{\"code\":\"%s\",\"min\":\"%s\"}", code, expires / 60))
+          .build();
 
-    String kindName = OptionalUtils.ofBlank(kind).orElse(type.name().toLowerCase());
-    String templateId = Optional.ofNullable(config.get(realm.getName().toLowerCase() + "-" + kindName + "-template"))
-        .orElse(config.get(kindName + "-template"));
+      // Asynchronously get the return value of the API request
+      CompletableFuture<SendSmsVerifyCodeResponse> response = client.sendSmsVerifyCode(sendSmsVerifyCodeRequest);
 
-    // Parameter settings for API request
-    SendSmsRequest sendSmsRequest = SendSmsRequest.builder()
-        .phoneNumbers(phoneNumber)
-        .signName(realm.getDisplayName().toLowerCase())
-        .templateCode(templateId)
-        .templateParam(String.format("{\"code\":\"%s\",\"expires\":\"%s\"}",code,expires / 60))
-        // Request-level configuration rewrite, can set Http request parameters, etc.
-        // .requestConfiguration(RequestConfiguration.create().setHttpHeaders(new HttpHeaders()))
-        .build();
-
-    // Asynchronously get the return value of the API request
-    CompletableFuture<SendSmsResponse> response = client.sendSms(sendSmsRequest);
-    // Synchronously get the return value of the API request
-    //SendSmsResponse resp = response.get();
-    //System.out.println(new Gson().toJson(resp));
-    // Asynchronous processing of return values
-        /*response.thenAccept(resp -> {
-            System.out.println(new Gson().toJson(resp));
-        }).exceptionally(throwable -> { // Handling exceptions
-            System.out.println(throwable.getMessage());
-            return null;
-        });*/
-
-    // Finally, close the client
-    client.close();
+      SendSmsVerifyCodeResponse resp;
+      
+      try {
+        // Synchronously get the return value of the API request - wait up to 30 seconds
+        resp = response.get(30, TimeUnit.SECONDS);
+      } catch (Exception e) {
+        String error = "SMS send timeout or failed: " + e.getMessage();
+        logger.error(error, e);
+        throw new MessageSendException(error, e);
+      }
+      
+      // 检查发送结果
+      if (resp != null && resp.getBody() != null) {
+        String resultCode = resp.getBody().getCode();
+        String message = resp.getBody().getMessage();
+        
+        logger.info("Aliyun SMS response - Code: " + resultCode + ", Message: " + message);
+        
+        if (!"OK".equals(resultCode)) {
+          String error = "SMS send failed with code: " + resultCode + ", message: " + message;
+          logger.error(error);
+          throw new MessageSendException(-1, resultCode, error);
+        } else {
+          logger.info("SMS verification code sent successfully to " + phoneNumber);
+        }
+      } else {
+        String error = "SMS send failed: empty response";
+        logger.error(error);
+        throw new MessageSendException(-1, "EMPTY_RESPONSE", error);
+      }
+      
+    } catch (MessageSendException e) {
+      throw e;
+    } catch (Exception e) {
+      String error = "Unexpected error sending SMS: " + e.getMessage();
+      logger.error(error, e);
+      throw new MessageSendException(error, e);
+    }
   }
 
   @Override
   public void close() {
-    client.close();
+    if (client != null) {
+      client.close();
+    }
   }
 }
