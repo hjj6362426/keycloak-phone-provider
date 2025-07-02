@@ -3,6 +3,7 @@ package cc.coopersoft.keycloak.phone.authentication.authenticators.browser;
 import cc.coopersoft.keycloak.phone.authentication.forms.SupportPhonePages;
 import cc.coopersoft.keycloak.phone.providers.constants.TokenCodeType;
 import cc.coopersoft.keycloak.phone.providers.exception.PhoneNumberInvalidException;
+import cc.coopersoft.keycloak.phone.providers.spi.PhoneProvider;
 import cc.coopersoft.keycloak.phone.providers.spi.PhoneVerificationCodeProvider;
 import cc.coopersoft.common.OptionalUtils;
 import cc.coopersoft.keycloak.phone.Utils;
@@ -16,10 +17,13 @@ import org.keycloak.authentication.authenticators.browser.AbstractUsernameFormAu
 import org.keycloak.authentication.authenticators.browser.UsernamePasswordForm;
 import org.keycloak.events.Details;
 import org.keycloak.events.Errors;
+import org.keycloak.events.EventType;
 import org.keycloak.forms.login.LoginFormsProvider;
 import org.keycloak.models.*;
 import org.keycloak.models.credential.PasswordCredentialModel;
+import org.keycloak.models.utils.FormMessage;
 import org.keycloak.models.utils.KeycloakModelUtils;
+import org.keycloak.protocol.oidc.OIDCLoginProtocol;
 import org.keycloak.provider.ProviderConfigProperty;
 import org.keycloak.provider.ProviderConfigurationBuilder;
 import org.keycloak.services.ServicesLogger;
@@ -30,6 +34,7 @@ import org.keycloak.services.validation.Validation;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 
+import java.net.URI;
 import java.util.List;
 
 import static cc.coopersoft.keycloak.phone.authentication.forms.SupportPhonePages.*;
@@ -48,6 +53,10 @@ public class PhoneUsernamePasswordForm extends UsernamePasswordForm implements A
   private static final String CONFIG_IS_LOGIN_WITH_PHONE_VERIFY = "loginWithPhoneVerify";
 
   private static final String CONFIG_IS_LOGIN_WITH_PHONE_NUMBER = "loginWithPhoneNumber";
+  
+  private static final String CONFIG_AUTO_REGISTER = "autoRegister";
+  
+  private static final String CONFIG_SET_PHONE_AS_USERNAME = "setPhoneAsUsername";
 
   /**
    * use phone and password login
@@ -96,6 +105,30 @@ public class PhoneUsernamePasswordForm extends UsernamePasswordForm implements A
     return forms.createLoginUsernamePassword();
   }
 
+  // 重写带有错误消息的challenge方法，确保在所有错误场景下都设置必要的表单属性
+  protected Response challenge(AuthenticationFlowContext context, String error) {
+    LoginFormsProvider forms = context.form();
+    if (error != null) {
+      forms.setError(error);
+    }
+    forms = assemblyForm(context, forms);
+    return forms.createLoginUsernamePassword();
+  }
+
+  // 重写带有错误消息和字段的challenge方法
+  protected Response challenge(AuthenticationFlowContext context, String error, String field) {
+    LoginFormsProvider forms = context.form();
+    if (error != null) {
+      if (field != null) {
+        forms.addError(new FormMessage(field, error));
+      } else {
+        forms.setError(error);
+      }
+    }
+    forms = assemblyForm(context, forms);
+    return forms.createLoginUsernamePassword();
+  }
+
   @Override
   protected boolean validateForm(AuthenticationFlowContext context, MultivaluedMap<String, String> inputData) {
 
@@ -107,7 +140,10 @@ public class PhoneUsernamePasswordForm extends UsernamePasswordForm implements A
     if (!byPhone) {
       return validateUserAndPassword(context, inputData);
     }
+    
     String phoneNumber = inputData.getFirst(FIELD_PHONE_NUMBER);
+    String code = inputData.getFirst(FIELD_VERIFICATION_CODE);
+    String action = inputData.getFirst("submitAction");
 
     if (Validation.isBlank(phoneNumber)) {
       context.getEvent().error(Errors.USERNAME_MISSING);
@@ -118,13 +154,58 @@ public class PhoneUsernamePasswordForm extends UsernamePasswordForm implements A
       return false;
     }
 
-    String code = inputData.getFirst(FIELD_VERIFICATION_CODE);
+    // 处理发送验证码的请求
+    if ("sendCode".equals(action)) {
+      return sendVerificationCode(context, phoneNumber);
+    }
+
+    // 处理登录验证请求
     if (Validation.isBlank(code)) {
       invalidVerificationCode(context, phoneNumber);
       return false;
     }
 
     return validatePhone(context, phoneNumber, code.trim());
+  }
+
+  private boolean sendVerificationCode(AuthenticationFlowContext context, String phoneNumber) {
+    try {
+      // 标准化手机号码
+      phoneNumber = Utils.canonicalizePhoneNumber(context.getSession(), phoneNumber);
+      
+      PhoneProvider phoneProvider = context.getSession().getProvider(PhoneProvider.class);
+      int expires = phoneProvider.sendTokenCode(phoneNumber, 
+              context.getConnection().getRemoteAddr(), 
+              TokenCodeType.AUTH, null);
+      
+      context.form()
+              .setInfo("codeSent", phoneNumber)
+              .setAttribute("expires", expires)
+              .setAttribute(ATTEMPTED_PHONE_ACTIVATED, true)
+              .setAttribute(ATTEMPTED_PHONE_NUMBER, phoneNumber);
+      assemblyForm(context, context.form());
+      
+      Response challenge = context.form().createLoginUsernamePassword();
+      context.challenge(challenge);
+      return false; // 不继续处理，等待用户输入验证码
+      
+    } catch (PhoneNumberInvalidException e) {
+      logger.warn("Phone number validation failed for: " + phoneNumber + ", error: " + e.getMessage());
+      context.form().setAttribute(ATTEMPTED_PHONE_ACTIVATED, true)
+              .setAttribute(ATTEMPTED_PHONE_NUMBER, phoneNumber);
+      assemblyForm(context, context.form());
+      Response challengeResponse = challenge(context, e.getErrorType().message(), FIELD_PHONE_NUMBER);
+      context.failureChallenge(AuthenticationFlowError.INVALID_CREDENTIALS, challengeResponse);
+      return false;
+    } catch (Exception e) {
+      logger.warn("Send verification code failed!", e);
+      context.form().setAttribute(ATTEMPTED_PHONE_ACTIVATED, true)
+              .setAttribute(ATTEMPTED_PHONE_NUMBER, phoneNumber);
+      assemblyForm(context, context.form());
+      Response challengeResponse = challenge(context, SupportPhonePages.Errors.FAIL.message(), FIELD_PHONE_NUMBER);
+      context.failureChallenge(AuthenticationFlowError.GENERIC_AUTHENTICATION_ERROR, challengeResponse);
+      return false;
+    }
   }
 
   private void invalidVerificationCode(AuthenticationFlowContext context, String number) {
@@ -145,19 +226,26 @@ public class PhoneUsernamePasswordForm extends UsernamePasswordForm implements A
 
       var validPhoneNumber = Utils.canonicalizePhoneNumber(context.getSession(), phoneNumber);
 
-      return Utils.findUserByPhone(context.getSession(), context.getRealm(), validPhoneNumber)
-          .map(user -> validateVerificationCode(context, user, validPhoneNumber, code)
-              && validateUser(context, user, validPhoneNumber))
-          .orElseGet(() -> {
-            context.getEvent().error(Errors.USER_NOT_FOUND);
-            context.form().setAttribute(ATTEMPTED_PHONE_ACTIVATED, true)
-                .setAttribute(ATTEMPTED_PHONE_NUMBER, phoneNumber);
-            assemblyForm(context, context.form());
-            Response challengeResponse = challenge(context, SupportPhonePages.Errors.USER_NOT_FOUND.message(),
-                FIELD_PHONE_NUMBER);
-            context.failureChallenge(AuthenticationFlowError.INVALID_USER, challengeResponse);
-            return false;
-          });
+      var userOpt = Utils.findUserByPhone(context.getSession(), context.getRealm(), validPhoneNumber);
+      if (userOpt.isPresent()) {
+        UserModel user = userOpt.get();
+        return validateVerificationCode(context, user, validPhoneNumber, code)
+            && validateUser(context, user, validPhoneNumber);
+      } else {
+        // 手机号码未注册，引导用户去注册页面
+        if (isAutoRegisterEnabled(context)) {
+          return handleUnregisteredPhone(context, validPhoneNumber);
+        } else {
+          context.getEvent().error(Errors.USER_NOT_FOUND);
+          context.form().setAttribute(ATTEMPTED_PHONE_ACTIVATED, true)
+              .setAttribute(ATTEMPTED_PHONE_NUMBER, phoneNumber);
+          assemblyForm(context, context.form());
+          Response challengeResponse = challenge(context, SupportPhonePages.Errors.USER_NOT_FOUND.message(),
+              FIELD_PHONE_NUMBER);
+          context.failureChallenge(AuthenticationFlowError.INVALID_USER, challengeResponse);
+          return false;
+        }
+      }
     } catch (PhoneNumberInvalidException e) {
       context.getEvent().error(Errors.USERNAME_MISSING);
       context.form().setAttribute(ATTEMPTED_PHONE_ACTIVATED, true)
@@ -224,6 +312,49 @@ public class PhoneUsernamePasswordForm extends UsernamePasswordForm implements A
     return true;
   }
 
+  private boolean isAutoRegisterEnabled(AuthenticationFlowContext context) {
+    return context.getAuthenticatorConfig() != null &&
+            "true".equals(context.getAuthenticatorConfig().getConfig()
+                    .getOrDefault(CONFIG_AUTO_REGISTER, "false"));
+  }
+
+  private boolean handleUnregisteredPhone(AuthenticationFlowContext context, String phoneNumber) {
+    // 如果启用了自动注册，直接跳转到注册页面
+    if (isAutoRegisterEnabled(context)) {
+      try {
+        URI registrationUri = context.getSession().getContext().getUri().getBaseUriBuilder()
+                .path("realms")
+                .path(context.getRealm().getName())
+                .path("login-actions")
+                .path("registration")
+                .queryParam("phoneNumber", phoneNumber)
+                .queryParam("phoneVerified", "true")
+                .queryParam("client_id", context.getAuthenticationSession().getClient().getClientId())
+                .queryParam("tab_id", context.getAuthenticationSession().getTabId())
+                .build();
+        
+        Response response = Response.seeOther(registrationUri).build();
+        context.challenge(response);
+        return false;
+      } catch (Exception e) {
+        logger.error("Failed to redirect to registration page", e);
+        // 如果跳转失败，回退到原来的处理方式
+      }
+    }
+    
+    // 设置注册相关的属性 - 如果自动注册未启用或跳转失败
+    context.form()
+            .setInfo("phoneNotRegistered", phoneNumber)
+            .setAttribute(ATTEMPTED_PHONE_ACTIVATED, true)
+            .setAttribute(ATTEMPTED_PHONE_NUMBER, phoneNumber)
+            .setAttribute("showRegistrationPrompt", true);
+    assemblyForm(context, context.form());
+    
+    Response challenge = context.form().createLoginUsernamePassword();
+    context.challenge(challenge);
+    return false; // 等待用户选择注册
+  }
+
   private boolean validateUser(AuthenticationFlowContext context, UserModel user,
       MultivaluedMap<String, String> inputData) {
     if (!enabledUser(context, user)) {
@@ -245,8 +376,15 @@ public class PhoneUsernamePasswordForm extends UsernamePasswordForm implements A
   public boolean validateUserAndPassword(AuthenticationFlowContext context, MultivaluedMap<String, String> inputData) {
     UserModel user = getUser(context, inputData);
     boolean shouldClearUserFromCtxAfterBadPassword = !isUserAlreadySetBeforeUsernamePasswordAuth(context);
-    return user != null && validatePassword(context, user, inputData, shouldClearUserFromCtxAfterBadPassword)
+    boolean isValid = user != null && validatePassword(context, user, inputData, shouldClearUserFromCtxAfterBadPassword)
         && validateUser(context, user, inputData);
+    
+    // 确保在密码登录失败时也设置必要的表单属性，以保持tab栏显示
+    if (!isValid) {
+      assemblyForm(context, context.form());
+    }
+    
+    return isValid;
   }
 
   private UserModel getUser(AuthenticationFlowContext context, MultivaluedMap<String, String> inputData) {
@@ -268,8 +406,8 @@ public class PhoneUsernamePasswordForm extends UsernamePasswordForm implements A
     String username = inputData.getFirst(AuthenticationManager.FORM_USERNAME);
     if (username == null) {
       context.getEvent().error(Errors.USER_NOT_FOUND);
-      Response challengeResponse = challenge(context, getDefaultChallengeMessage(context), FIELD_USERNAME);
       assemblyForm(context, context.form());
+      Response challengeResponse = challenge(context, getDefaultChallengeMessage(context), FIELD_USERNAME);
       context.failureChallenge(AuthenticationFlowError.INVALID_USER, challengeResponse);
       return null;
     }
@@ -291,6 +429,9 @@ public class PhoneUsernamePasswordForm extends UsernamePasswordForm implements A
     } catch (ModelDuplicateException mde) {
       ServicesLogger.LOGGER.modelDuplicateException(mde);
 
+      // 确保在处理重复用户错误时也设置必要的表单属性
+      assemblyForm(context, context.form());
+      
       // Could happen during federation import
       if (mde.getDuplicateFieldName() != null && mde.getDuplicateFieldName().equals(UserModel.EMAIL)) {
         setDuplicateUserChallenge(context, Errors.EMAIL_IN_USE, Messages.EMAIL_EXISTS,
@@ -350,6 +491,12 @@ public class PhoneUsernamePasswordForm extends UsernamePasswordForm implements A
         .label("Login with phone number")
         .helpText("Input phone number and password.  `Duplicate phone` must be false.")
         .defaultValue(true)
+        .add()
+        .property().name(CONFIG_AUTO_REGISTER)
+        .type(BOOLEAN_TYPE)
+        .label("Auto Register")
+        .helpText("Show registration prompt when phone number is not found.")
+        .defaultValue(false)
         .add()
         .build();
   }

@@ -151,18 +151,26 @@ public class RegistrationPhoneVerificationCode implements FormAction, FormAction
 
     context.getEvent().detail(FIELD_PHONE_NUMBER, phoneNumber);
 
-    String verificationCode = formData.getFirst(FIELD_VERIFICATION_CODE);
-    TokenCodeRepresentation tokenCode = getTokenCodeService(session).ongoingProcess(phoneNumber,
-        TokenCodeType.REGISTRATION);
-    if (Validation.isBlank(verificationCode) || tokenCode == null || !tokenCode.getCode().equals(verificationCode)) {
-      context.error(Errors.INVALID_REGISTRATION);
-      formData.remove(FIELD_VERIFICATION_CODE);
-      errors.add(new FormMessage(FIELD_VERIFICATION_CODE, SupportPhonePages.Errors.NOT_MATCH.message()));
-      context.validationError(formData, errors);
-      return;
+    String verificationCode = formData.getFirst("registerCode");
+    
+    // 检查是否是从登录页面跳转过来的已验证手机号码
+    if ("SKIP_VERIFICATION".equals(verificationCode)) {
+      // 跳过验证码验证，手机号码已在登录时验证过
+      logger.info("Skipping phone verification for pre-verified phone number: " + phoneNumber);
+      context.getSession().setAttribute("tokenId", "SKIP_VERIFICATION");
+    } else {
+      // 正常的验证码验证流程
+      TokenCodeRepresentation tokenCode = getTokenCodeService(session).ongoingProcess(phoneNumber,
+          TokenCodeType.REGISTRATION);
+      if (Validation.isBlank(verificationCode) || tokenCode == null || !tokenCode.getCode().equals(verificationCode)) {
+        context.error(Errors.INVALID_REGISTRATION);
+        formData.remove(FIELD_VERIFICATION_CODE);
+        errors.add(new FormMessage(FIELD_VERIFICATION_CODE, SupportPhonePages.Errors.NOT_MATCH.message()));
+        context.validationError(formData, errors);
+        return;
+      }
+      context.getSession().setAttribute("tokenId", tokenCode.getId());
     }
-
-    context.getSession().setAttribute("tokenId", tokenCode.getId());
     context.success();
   }
 
@@ -186,7 +194,18 @@ public class RegistrationPhoneVerificationCode implements FormAction, FormAction
     String tokenId = session.getAttribute("tokenId", String.class);
 
     logger.info(String.format("registration user %s phone success, tokenId is: %s", user.getId(), tokenId));
-    getTokenCodeService(context.getSession()).tokenValidated(user, phoneNumber, tokenId, false);
+    
+    // 设置手机号码到用户属性（无论是否跳过验证都需要设置）
+    user.setSingleAttribute("phoneNumber", phoneNumber);
+    user.setSingleAttribute("phoneNumberVerified", "true");
+    
+    // 如果不是跳过验证的情况，调用tokenValidated
+    if (!"SKIP_VERIFICATION".equals(tokenId)) {
+      getTokenCodeService(context.getSession()).tokenValidated(user, phoneNumber, tokenId, false);
+      logger.info("Phone number verified and set for user: " + user.getId() + ", phone: " + phoneNumber);
+    } else {
+      logger.info("Phone number set for pre-verified registration: " + phoneNumber);
+    }
 
     AuthenticatorConfigModel config = context.getAuthenticatorConfig();
     if (config != null &&

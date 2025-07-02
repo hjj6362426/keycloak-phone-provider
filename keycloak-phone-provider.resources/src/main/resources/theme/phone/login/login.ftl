@@ -16,6 +16,20 @@
                 [v-cloak]::before {
                     content: "loading...";
                 }
+                
+                .phone-auto-register-info {
+                    background-color: #f0f9ff;
+                    border: 1px solid #0284c7;
+                    border-radius: 4px;
+                    padding: 12px;
+                    margin-bottom: 15px;
+                    color: #0c4a6e;
+                }
+                
+                .phone-auto-register-info .info-icon {
+                    color: #0284c7;
+                    margin-right: 8px;
+                }
             </style>
         </#if>
 
@@ -36,6 +50,21 @@
                                     <span class="${properties.kcAlertTitleClass!}">{{ errorMessage }}</span>
                                 </div>
 
+                                <!-- 自动注册成功提示 -->
+                                <div class="alert-success ${properties.kcAlertClass!} pf-m-success" v-show="successMessage">
+                                    <div class="pf-c-alert__icon">
+                                        <span class="${properties.kcFeedbackSuccessIcon!}"></span>
+                                    </div>
+                                    <span class="${properties.kcAlertTitleClass!}">{{ successMessage }}</span>
+                                </div>
+
+                                <!-- 手机号码未注册自动跳转 -->
+                                <#if showRegistrationPrompt??>
+                                <script>
+                                    // 自动跳转到注册页面，不显示选择弹窗
+                                    window.location.href = "${url.registrationUrl}?phoneNumber=${attemptedPhoneNumber!}&phoneVerified=true";
+                                </script>
+                                </#if>
 
                                 <div class="${properties.kcFormGroupClass!}">
                                     <div class="${properties.kcLabelWrapperClass!}">
@@ -55,6 +84,8 @@
                             </div>
 
                             <input type="hidden" id="phoneActivated" name="phoneActivated" v-model="phoneActivated">
+                            <!-- 添加自动注册相关的隐藏字段 -->
+                            <input type="hidden" name="submitAction" :value="submitAction">
                        </#if>
 
 
@@ -126,9 +157,18 @@
 
                         <#if !usernameHidden?? && supportPhone??>
                             <div v-if="phoneActivated">
+                                <!-- 自动注册说明信息 -->
+                                <div class="phone-auto-register-info">
+                                    <i class="fa fa-info-circle info-icon" aria-hidden="true"></i>
+                                    ${msg("phoneAutoLoginInstruction")}
+                                </div>
+                                
                                 <div class="${properties.kcFormGroupClass!}">
                                     <label for="phoneNumber" class="${properties.kcLabelClass!}">${msg("phoneNumber")}</label>
-                                    <input tabindex="0" type="text" id="phoneNumber" name="phoneNumber" v-model="phoneNumber"
+                                    <input tabindex="0" type="tel" id="phoneNumber" name="phoneNumber" 
+                                           v-model="phoneNumber"
+                                           value="${(attemptedPhoneNumber!'')}"
+                                           placeholder="${msg("phoneNumber")}"
                                            aria-invalid="<#if messagesPerField.existsError('code','phoneNumber')>true</#if>"
                                            class="${properties.kcInputClass!}" autofocus/>
                                     <#if messagesPerField.existsError('code','phoneNumber')>
@@ -138,21 +178,34 @@
                                     </#if>
                                 </div>
 
-                                <div class="${properties.kcFormGroupClass!} row">
-                                    <div class="${properties.kcLabelWrapperClass!}"  style="padding: 0">
-                                        <label for="code" class="${properties.kcLabelClass!}">${msg("verificationCode")}</label>
-                                    </div>
-                                    <div class="col-xs-8" style="padding: 0 5px 0 0">
-                                        <input tabindex="0" type="text" id="code" name="code"
-                                               aria-invalid="<#if messagesPerField.existsError('code','phoneNumber')>true</#if>"
-                                               class="${properties.kcInputClass!}" autocomplete="one-time-code"/>
+                                <div class="${properties.kcFormGroupClass!}">
+                                    <label for="sendCode" class="${properties.kcLabelClass!}">${msg("sendVerificationCode")}</label>
+                                    <button id="sendCode"
+                                            class="${properties.kcButtonClass!} ${properties.kcButtonDefaultClass!} ${properties.kcButtonBlockClass!} ${properties.kcButtonLargeClass!}" 
+                                            type="button" 
+                                            :disabled="!phoneNumber || sendingCode || countdown > 0"
+                                            @click="sendVerificationCode">
+                                        <span v-if="countdown > 0">${msg("sendVerificationCode")} ({{ countdown }}s)</span>
+                                        <span v-else-if="sendingCode">${msg("sendVerificationCode")}...</span>
+                                        <span v-else>${msg("sendVerificationCode")}</span>
+                                    </button>
+                                </div>
 
-                                    </div>
-                                    <div class="col-xs-4" style="padding: 0 0 0 5px">
-                                        <input tabindex="0" style="height: 36px"
-                                               class="${properties.kcButtonClass!} ${properties.kcButtonPrimaryClass!} ${properties.kcButtonBlockClass!} ${properties.kcButtonLargeClass!}"
-                                               type="button" v-model="sendButtonText" :disabled='sendButtonText !== initSendButtonText' v-on:click="sendVerificationCode()"/>
-                                    </div>
+                                <div class="${properties.kcFormGroupClass!}" v-show="showCodeInput">
+                                    <label for="code" class="${properties.kcLabelClass!}">${msg("verificationCode")}</label>
+                                    
+                                    <input tabindex="0" type="text" id="code" name="code"
+                                           v-model="verificationCode"
+                                           placeholder="${msg("verificationCode")}"
+                                           maxlength="6"
+                                           aria-invalid="<#if messagesPerField.existsError('code','phoneNumber')>true</#if>"
+                                           class="${properties.kcInputClass!}" autocomplete="one-time-code"/>
+                                           
+                                    <#if messagesPerField.existsError('code','phoneNumber')>
+                                        <span id="input-error-code" class="${properties.kcInputErrorMessageClass!}" aria-live="polite">
+                                            ${kcSanitize(messagesPerField.getFirstError('phoneNumber','code'))?no_esc}
+                                        </span>
+                                    </#if>
                                 </div>
                             </div>
                         </#if>
@@ -160,7 +213,26 @@
 
                         <div id="kc-form-buttons" class="${properties.kcFormGroupClass!}">
                             <input type="hidden" id="id-hidden-input" name="credentialId" <#if auth.selectedCredential?has_content>value="${auth.selectedCredential}"</#if>/>
-                            <input tabindex="0" class="${properties.kcButtonClass!} ${properties.kcButtonPrimaryClass!} ${properties.kcButtonBlockClass!} ${properties.kcButtonLargeClass!}" name="login" id="kc-login" type="submit" value="${msg("doLogIn")}"/>
+                            <#if !usernameHidden?? && supportPhone??>
+                                <!-- 手机登录提交按钮 -->
+                                <input v-if="phoneActivated && showCodeInput" 
+                                       tabindex="0" 
+                                       class="${properties.kcButtonClass!} ${properties.kcButtonPrimaryClass!} ${properties.kcButtonBlockClass!} ${properties.kcButtonLargeClass!}" 
+                                       type="submit" 
+                                       :disabled="!verificationCode"
+                                       @click="submitPhoneLogin"
+                                       value="${msg("doLogIn")}"/>
+                                <!-- 密码登录提交按钮 -->
+                                <input v-if="!phoneActivated" 
+                                       tabindex="0" 
+                                       class="${properties.kcButtonClass!} ${properties.kcButtonPrimaryClass!} ${properties.kcButtonBlockClass!} ${properties.kcButtonLargeClass!}" 
+                                       name="login" 
+                                       id="kc-login" 
+                                       type="submit" 
+                                       value="${msg("doLogIn")}"/>
+                            <#else>
+                                <input tabindex="0" class="${properties.kcButtonClass!} ${properties.kcButtonPrimaryClass!} ${properties.kcButtonBlockClass!} ${properties.kcButtonLargeClass!}" name="login" id="kc-login" type="submit" value="${msg("doLogIn")}"/>
+                            </#if>
                         </div>
 
                     </form>
@@ -182,36 +254,85 @@
                     el: '#vue-app',
                     data: {
                         errorMessage: '',
+                        successMessage: '',
                         freezeSendCodeSeconds: 0,
                         phoneActivated: <#if attemptedPhoneActivated??>true<#else>false</#if>,
                         phoneNumber: '${attemptedPhoneNumber!}',
+                        verificationCode: '',
+                        showCodeInput: ${(attemptedPhoneNumber??)?string('true', 'false')},
+                        sendingCode: false,
+                        countdown: 0,
+                        submitAction: 'login',
                         sendButtonText: '${msg("sendVerificationCode")}',
-                        initSendButtonText: '${msg("sendVerificationCode")}',
+                        initSendButtonText: '${msg("sendVerificationCode")}'
+                    },
+                    mounted: function() {
+                        <#if expires??>
+                            this.disableSend(${expires});
+                        </#if>
+                        <#if message??>
+                            <#if message.type = 'error'>
+                                this.errorMessage = '${kcSanitize(message.summary)?no_esc}';
+                            <#elseif message.type = 'success'>
+                                this.successMessage = '${kcSanitize(message.summary)?no_esc}';
+                            </#if>
+                        </#if>
+                    },
+                    methods: {
                         disableSend: function(seconds) {
-                            if (seconds <= 0) {
-                                app.sendButtonText = app.initSendButtonText;
-                            } else {
-                                const minutes = Math.floor(seconds / 60) + '';
-                                const seconds_ = seconds % 60 + '';
-                                app.sendButtonText = String(minutes.padStart(2, '0') + ":" + seconds_.padStart(2, '0'));
-                                setTimeout(function () {
-                                    app.disableSend(seconds - 1);
-                                }, 1000);
-                            }
+                            this.countdown = seconds;
+                            this.showCodeInput = true;
+                            this.sendingCode = false;
+                            
+                            var timer = setInterval(() => {
+                                this.countdown--;
+                                if (this.countdown <= 0) {
+                                    clearInterval(timer);
+                                }
+                            }, 1000);
                         },
                         sendVerificationCode: function() {
-
-                            const phoneNumber = document.getElementById('phoneNumber').value.trim();
+                            const phoneNumber = this.phoneNumber.trim();
                             if (!phoneNumber) {
                                 this.errorMessage = '${msg("requiredPhoneNumber")}';
-                                document.getElementById('phoneNumber').focus();
                                 return;
                             }
-                            if (this.sendButtonText !== this.initSendButtonText) {
+                            if (this.countdown > 0) {
                                 return;
                             }
-                            req(phoneNumber);
-
+                            
+                            this.sendingCode = true;
+                            this.errorMessage = '';
+                            this.successMessage = '';
+                            this.submitAction = 'sendCode';
+                            
+                            // 确保隐藏字段值被更新
+                            this.$nextTick(() => {
+                                document.getElementById('kc-form-login').submit();
+                            });
+                        },
+                        submitPhoneLogin: function() {
+                            if (!this.verificationCode) {
+                                this.errorMessage = '${msg("requiredVerificationCode")}';
+                                return;
+                            }
+                            this.submitAction = 'login';
+                            this.errorMessage = '';
+                            this.successMessage = '';
+                        }
+                    },
+                    watch: {
+                        phoneActivated: function(newVal) {
+                            if (newVal) {
+                                this.errorMessage = '';
+                                this.successMessage = '';
+                                // 切换到手机登录时重置状态
+                                if (!this.phoneNumber) {
+                                    this.showCodeInput = false;
+                                    this.countdown = 0;
+                                    this.sendingCode = false;
+                                }
+                            }
                         }
                     }
                 });

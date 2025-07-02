@@ -89,7 +89,7 @@ public class PhoneAutoRegistrationAuthenticator implements Authenticator, Authen
 
         if (Validation.isBlank(code)) {
             context.form()
-                    .setError(SupportPhonePages.Errors.NOT_MATCH.message())
+                    .setError("requiredVerificationCode")
                     .setAttribute("phoneAutoLogin", true)
                     .setAttribute(ATTRIBUTE_SUPPORT_PHONE, true)
                     .setAttribute(ATTEMPTED_PHONE_NUMBER, phoneNumber);
