@@ -5,8 +5,8 @@
     <#elseif section = "form">
 
         <#if supportPhone??>
-            <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
-            <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+            <script src="https://fastly.jsdelivr.net/npm/vue/dist/vue.js"></script>
+            <script src="https://fastly.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
 
             <style>
                 [v-cloak] > * {

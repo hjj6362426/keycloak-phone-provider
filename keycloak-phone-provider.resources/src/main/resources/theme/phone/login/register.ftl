@@ -3,8 +3,8 @@
     <#if section = "header">
         ${msg("registerTitle")}
     <#elseif section = "form">
-        <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
-        <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+        <script src="https://fastly.jsdelivr.net/npm/vue/dist/vue.js"></script>
+        <script src="https://fastly.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
         <style>
             .phone-verified-readonly {
                 background-color: #f5f5f5;

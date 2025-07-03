@@ -6,8 +6,8 @@
 
         <#if !usernameHidden?? && supportPhone??>
 
-            <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
-            <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+            <script src="https://fastly.jsdelivr.net/npm/vue/dist/vue.js"></script>
+            <script src="https://fastly.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
             <style>
                 [v-cloak] > * {
                     display: none;
@@ -349,11 +349,10 @@
             </div>
         </#if>
     <#elseif section = "socialProviders" >
-        <#if realm.password && social.providers??>
+        <#if realm.password && social.providers?? && (social.providers?size > 0)>
             <div id="kc-social-providers" class="${properties.kcFormSocialAccountSectionClass!}">
                 <hr/>
                 <h4>${msg("identity-provider-login-label")}</h4>
-
                 <ul class="${properties.kcFormSocialAccountListClass!} <#if social.providers?size gt 3>${properties.kcFormSocialAccountListGridClass!}</#if>">
                     <#list social.providers as p>
                         <a id="social-${p.alias}" class="${properties.kcFormSocialAccountListButtonClass!} <#if social.providers?size gt 3>${properties.kcFormSocialAccountGridItem!}</#if>"
