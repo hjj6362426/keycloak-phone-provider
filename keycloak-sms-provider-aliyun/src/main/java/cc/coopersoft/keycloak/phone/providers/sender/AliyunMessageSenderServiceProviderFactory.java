@@ -11,7 +11,14 @@ public class AliyunMessageSenderServiceProviderFactory implements MessageSenderS
 
   @Override
   public MessageSenderService create(KeycloakSession keycloakSession) {
-    return new AliyunSmsSenderServiceProvider(config, keycloakSession.getContext().getRealm());
+    // 根据配置选择使用哪个实现
+    String apiType = config.get("api-type");
+    if ("dysms".equalsIgnoreCase(apiType)) {
+      return new AliyunDysmsSenderServiceProvider(config, keycloakSession.getContext().getRealm());
+    } else {
+      // 默认使用 dypns (短信验证码专用)
+      return new AliyunSmsSenderServiceProvider(config, keycloakSession.getContext().getRealm());
+    }
   }
 
   @Override
