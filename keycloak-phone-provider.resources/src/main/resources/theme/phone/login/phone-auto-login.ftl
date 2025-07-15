@@ -83,8 +83,8 @@
 
                 <div class="${properties.kcFormGroupClass!}">
                     <div class="${properties.kcFormOptionsWrapperClass!}">
-                        <#if realm.password>
-                            <span><a href="${url.loginUrl}">${kcSanitize(msg("backToLogin"))?no_esc}</a></span>
+                        <#if url.referrerURI??>
+                            <span><a href="${url.referrerURI}">${kcSanitize(msg("backToApplication"))?no_esc}</a></span>
                         </#if>
                     </div>
                 </div>
