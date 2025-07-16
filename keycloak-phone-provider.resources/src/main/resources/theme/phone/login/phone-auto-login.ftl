@@ -119,6 +119,31 @@
                             return;
                         }
                         
+                        // 添加基本格式验证
+                        const phoneNumber = this.phoneNumber.trim();
+                        if (!phoneNumber) {
+                            this.errorMessage = '${msg("requiredPhoneNumber")}';
+                            return;
+                        }
+                        
+                        // 基本格式检查：只允许数字、+、-、空格
+                        const phoneRegex = /^[\d\s\+\-\(\)]+$/;
+                        if (!phoneRegex.test(phoneNumber)) {
+                            this.errorMessage = '${msg("invalidPhoneNumberMustNumber")}';
+                            return;
+                        }
+                        
+                        // 长度检查（去除空格后）
+                        const cleanPhone = phoneNumber.replace(/[\s\-\(\)]/g, '');
+                        if (cleanPhone.length < 7) {
+                            this.errorMessage = '${msg("invalidPhoneNumberTooShort")}';
+                            return;
+                        }
+                        if (cleanPhone.length > 15) {
+                            this.errorMessage = '${msg("invalidPhoneNumberTooLong")}';
+                            return;
+                        }
+                        
                         this.sendingCode = true;
                         this.errorMessage = '';
                         

@@ -1,0 +1,95 @@
+/* 自定义登录页面背景样式 */
+
+/* 全页面背景 */
+body.login-pf {
+    /* 纯色背景 */
+    background-color: #acadae;
+    
+    /* 渐变背景示例 */
+    /* background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); */
+    
+    /* 图片背景示例 */
+         background-image: url('../img/login-bg.png'); 
+    background-size: cover;
+    background-position: center center;
+    /* background-repeat: no-repeat; */
+    /* background-attachment: fixed; */
+}
+
+/* 登录卡片容器背景 */
+.login-pf .container {
+    position: relative;
+}
+
+/* 登录表单卡片样式 */
+.login-pf-page .card-pf {
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    border-radius: 16px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    padding: 2rem;
+}
+
+/* 表单标题样式 */
+.login-pf-header h1 {
+    color: #1f2937;
+    font-weight: 600;
+    margin-bottom: 1.5rem;
+}
+
+/* 输入框样式优化 */
+.form-control {
+    border-radius: 8px;
+    border: 1px solid #d1d5db;
+    padding: 12px 16px;
+    transition: all 0.3s ease;
+}
+
+.form-control:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* 按钮样式优化 */
+.btn-primary {
+    background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+    border: none;
+    border-radius: 8px;
+    padding: 12px 24px;
+    font-weight: 500;
+    transition: all 0.3s ease;
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 20px rgba(59, 130, 246, 0.3);
+}
+
+/* 手机登录特有样式 */
+.phone-auto-register-info {
+    background: linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 100%);
+    border: 1px solid #10b981;
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 1rem;
+    color: #065f46;
+}
+
+/* 导航标签样式 */
+.nav-pills > li.active > a {
+    background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+    border-radius: 8px;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    body.login-pf {
+        background-attachment: scroll;
+    }
+    
+    .login-pf-page .card-pf {
+        margin: 1rem;
+        padding: 1.5rem;
+    }
+} 

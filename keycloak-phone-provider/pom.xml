@@ -34,6 +34,13 @@
             <artifactId>okhttp</artifactId>
             <version>4.12.0</version>
         </dependency>
+        
+        <!-- 添加resources模块依赖，包含主题资源文件 -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>keycloak-phone-provider.resources</artifactId>
+            <version>${project.version}</version>
+        </dependency>
 
     </dependencies>
 
