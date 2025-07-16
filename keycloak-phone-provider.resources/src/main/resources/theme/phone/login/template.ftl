@@ -41,6 +41,8 @@
         display: flex;
         flex-direction: column;
         align-items: center;
+        position: fixed;
+        top: 25%;
     }
     body div.kc-logo-text {
         background-image: url('${url.resourcesPath}/img/keycloak-logo.png');
