@@ -42,15 +42,18 @@
         flex-direction: column;
         align-items: center;
         position: fixed;
-        top: 25%;
+        top: 15%;
     }
     body div.kc-logo-text {
         background-image: url('${url.resourcesPath}/img/keycloak-logo.png');
-        background-size: contain;
+        background-size: 100% 100%;
         background-repeat: no-repeat;
         background-position: center;
-        height: 60px;
-        width: 200px;
+        height: 122px;
+        width: 522px;
+    }
+    h1#kc-page-title{
+        margin: 0
     }
     div.kc-logo-text span{
         display: none !important;
@@ -85,7 +88,9 @@
             max-width: 500px;
       
         }
-        
+        .login-pf-page .login-pf-header{
+            margin: 0
+        }
         /* 登录页面标题样式 */
         .login-pf-header h1 {
             color: #1f2937;
@@ -94,6 +99,9 @@
             text-align: center;
             margin-bottom: 2rem;
             text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        #kc-form-buttons{
+            margin-top: 0
         }
     </style>
 </head>
